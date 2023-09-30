@@ -1,8 +1,13 @@
 {
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test": "mocha --require ts-node/register test/*"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.2",
+    "@types/node": "^20.8.0",
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
   }
 }
