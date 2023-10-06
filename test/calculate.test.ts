@@ -36,8 +36,13 @@ describe('calculatePriorityFeeRefund', function () {
       { sender: 'B', priorityFeePerGas: '1' },
     ],
     [
-      { sender: 'A', priorityFeePerGas: '10' },
-      { sender: 'B', priorityFeePerGas: '1' },
+      { sender: 'A', priorityFeePerGas: '100' },
+      { sender: 'B', priorityFeePerGas: '10' },
+    ],
+    [
+      { sender: 'A', priorityFeePerGas: '100' },
+      { sender: 'B', priorityFeePerGas: '10' },
+      { sender: 'C', priorityFeePerGas: '0' },
     ],
     [
       { sender: 'A', priorityFeePerGas: '100' },
@@ -59,14 +64,20 @@ describe('calculatePriorityFeeRefund', function () {
 
   const expected = [
     [
-      { sender: 'A', eventualCharge: 1000, refund: 0 }],
+      { sender: 'A', eventualCharge: 1000, refund: 0 }
+    ],
     [
       { sender: 'A', eventualCharge: 500, refund: 500 },
       { sender: 'B', eventualCharge: 500, refund: 500 }
     ],
     [
-      { sender: 'A', eventualCharge: 9091, refund: 909 },
-      { sender: 'B', eventualCharge: 910, refund: 90 }
+      { sender: 'A', eventualCharge: 90910, refund: 9090 },
+      { sender: 'B', eventualCharge: 9091, refund: 909 }
+    ],
+    [
+      { sender: 'A', eventualCharge: 90910, refund: 9090 },
+      { sender: 'B', eventualCharge: 9091, refund: 909 },
+      { sender: 'C', eventualCharge: 0, refund: 0 }
     ],
     [
       { sender: 'A', eventualCharge: 90091, refund: 9909 },
