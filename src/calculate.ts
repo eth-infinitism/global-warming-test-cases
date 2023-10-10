@@ -56,52 +56,50 @@ export function calculateColdStorageRefund (
 }
 
 export function calculatePriorityFeeRefund (accessDetails: AccessDetails[], accessGasCost: number) {
-  // 1. Sort all accesses
+  // 1. Sort all accesses by their "priorityFeePerGas"
   const sortedAccesses = accessDetails.sort((a, b) => {
     return parseInt(b.priorityFeePerGas) - parseInt(a.priorityFeePerGas)
   })
 
-  // 2. Validator charge is "the highest price * gas cost"
-  const validatorFee = parseInt(sortedAccesses[0].priorityFeePerGas) * accessGasCost
-
-  // 3. Calculate the remainder of gas paid to validator for accessing the same address/slot/chunk
-  const totalSendersCharged = sortedAccesses.reduce(
-    (previousValue, currentValue) => {
-      return previousValue + parseInt(currentValue.priorityFeePerGas) * accessGasCost
-    }, 0)
-  const totalRefund = totalSendersCharged - validatorFee
-
-  // 4. Calculate gain and weights for refund redistribution
-  const gain = sortedAccesses.map((value, index, array) => {
+  // 2. Calculate "contribution" as an increase in total refund caused by including this transaction
+  // Notice that the two most expensive transactions have the same contribution to the refund
+  // All the rest of transactions contribute all of their cost to the refund
+  const topTransactionContribution = parseInt(sortedAccesses[1].priorityFeePerGas) * accessGasCost
+  const refundIncrease = sortedAccesses.map((value, index) => {
     const charge = parseInt(value.priorityFeePerGas) * accessGasCost
-    if (index == 0) {
-      // The most expensive transaction and the 2nd best have the same "gain"
-      return {
-        sender: value.sender,
-        gain: parseInt(array[0].priorityFeePerGas) * accessGasCost,
-        charge
-      }
-    }
-    // all the rest of transactions contribute exactly their charge to the "gain"
     return {
       sender: value.sender,
-      gain: charge,
+      contribution: index == 0 ? topTransactionContribution : charge,
       charge
     }
   })
 
-  // 5. Calculate the total "gain" of the group
-  const totalGain = gain.reduce((previousValue, currentValue) => {
-    return previousValue + currentValue.gain
+  // 3. Calculate the sum of all "contributions"
+  const totalContributions = refundIncrease.reduce((previousValue, currentValue) => {
+    return previousValue + currentValue.contribution
   }, 0)
 
-  // 6. Calculate refunds relative to total "gain"
-  const refunds = gain.map((it) => {
-    const refund = Math.floor((totalRefund * it.gain) / totalGain)
-    const eventualCharge = it.charge - refund
+  // 4. Calculate the remainder of gas paid to validator for accessing the same address/slot/chunk
+  const totalSendersCharged = sortedAccesses.reduce(
+    (previousValue, currentValue) => {
+      return previousValue + parseInt(currentValue.priorityFeePerGas) * accessGasCost
+    }, 0)
+
+  // 5. Validator charge is "the highest price * gas cost"
+  const validatorFee = parseInt(sortedAccesses[0].priorityFeePerGas) * accessGasCost
+
+  // 6. Calculate the total amount of ether to be refunded for this access
+  const totalRefund = totalSendersCharged - validatorFee
+
+  // 7. Calculate actual charges and refunds
+  const ratio = totalRefund / totalContributions
+  const refunds = refundIncrease.map((it) => {
+    const refund = Math.floor(ratio * it.contribution)
+    const actualCharge = it.charge - refund
     return {
       sender: it.sender,
-      eventualCharge,
+      originalCharge: it.charge,
+      actualCharge,
       refund
     }
   })
