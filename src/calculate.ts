@@ -80,12 +80,13 @@ export function calculatePriorityFeeRefunds (sortedAccesses: AccessDetails[], ac
   // Notice that the two most expensive transactions have the same contribution to the refund
   const topTransactionContribution = parseInt(sortedAccesses[1].priorityFeePerGas) * parseInt(accessGasCost)
 
-  let totalContributions = 0  // Accumulate the sum of all "contributions"
-  let totalSendersCharged = 0 // Accumulate cost of gas paid to validator for accessing the same address/slot/chunk
-  for (let i = 0; i < sortedAccesses.length; i++) {
+  // Accumulate the sum of all "contributions", at least the top transaction contribution
+  let totalContributions = topTransactionContribution
+  // Accumulate cost of gas paid to validator for accessing the same address/slot/chunk
+  let totalSendersCharged = parseInt(sortedAccesses[0].priorityFeePerGas) * parseInt(accessGasCost)
+  for (let i = 1; i < sortedAccesses.length; i++) {
     const charge = parseInt(sortedAccesses[i].priorityFeePerGas) * parseInt(accessGasCost)
-    const contribution = i == 0 ? topTransactionContribution : charge
-    totalContributions += contribution
+    totalContributions += charge
     totalSendersCharged += charge
   }
 
@@ -97,12 +98,10 @@ export function calculatePriorityFeeRefunds (sortedAccesses: AccessDetails[], ac
   }
 
   // Calculate actual charges and refunds
-  const refunds = []
-  const ratio = totalRefund / totalContributions
-  for (let i = 0; i < sortedAccesses.length; i++) {
+  const refunds = [Math.floor(totalRefund * topTransactionContribution / totalContributions)]
+  for (let i = 1; i < sortedAccesses.length; i++) {
     const charge = parseInt(sortedAccesses[i].priorityFeePerGas) * parseInt(accessGasCost)
-    const contribution = i == 0 ? topTransactionContribution : charge
-    refunds.push(Math.floor(ratio * contribution))
+    refunds.push(Math.floor(totalRefund * charge / totalContributions))
   }
   return refunds
 }

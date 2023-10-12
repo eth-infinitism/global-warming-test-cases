@@ -4,7 +4,7 @@ import assert from 'node:assert'
 import { AccessDetails, calculateBlockColdAccessRefund, calculatePriorityFeeRefunds } from '../src/calculate'
 
 describe('calculateColdStorageRefund', function () {
-  it('test', function () {
+  it('should calculate refund values for the given block', function () {
       const refund = calculateBlockColdAccessRefund('10000', blockAddressMap
       )
       assert.deepEqual(Object.fromEntries(refund), {
