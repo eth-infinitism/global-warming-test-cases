@@ -5,12 +5,42 @@ import {
   calculateBlockColdAccessRefund, COLD_ACCOUNT_ACCESS_COST, COLD_SLOAD_COST,
   Slot
 } from '../src/calculate'
+import { fetchContractName } from './etherscan_utils'
+
+interface TempAccessDetails {
+  address: string
+  baseFeeBurned: bigint
+  addressAccessCount: number
+  slotAccessCount: number
+  priorityFeePaid: bigint
+  accessGasCost: bigint
+}
 
 describe('using example blocks', function () {
   const provider = new JsonRpcProvider('')
 
+  function mergeIn (accessesArrayAllBlocks: {
+    [key: string]: TempAccessDetails
+  }, addressAccessesArray: TempAccessDetails[]) {
+    for (const newElement of addressAccessesArray) {
+      const oldElement = accessesArrayAllBlocks[newElement.address]
+      if (oldElement == null) {
+        accessesArrayAllBlocks[newElement.address] = Object.assign({}, newElement)
+      } else {
+        oldElement.addressAccessCount += newElement.addressAccessCount
+        oldElement.slotAccessCount += newElement.slotAccessCount
+        oldElement.priorityFeePaid += newElement.priorityFeePaid
+        oldElement.baseFeeBurned += newElement.baseFeeBurned
+        oldElement.accessGasCost += newElement.accessGasCost
+      }
+    }
+  }
+
   it.only('calculate savings', async function () {
+    this.timeout(10000000)
     const blockFiles = fs.readdirSync('./blocks/')
+
+    let accessesArrayAllBlocks: { [key: string]: TempAccessDetails } = {}
 
     let totalBaseFeeBurnedAllBlocks = 0n
     let totalPriorityFeePaidAllBlocks = 0n
@@ -92,6 +122,8 @@ describe('using example blocks', function () {
         return b.addressAccessCount > a.addressAccessCount ? 1 : -1
       })
 
+      mergeIn(accessesArrayAllBlocks, addressAccessesArray)
+
       let totalRepetitions = 0
       let totalRepeated = 0
       let totalUnique = 0
@@ -138,5 +170,18 @@ describe('using example blocks', function () {
     console.log('-----------')
     console.log('All blocks base fee refund % | All blocks priority fee refund %')
     console.log(`${refundedPercentBaseFee.toFixed(2)} % | ${refundedPercentPriorityFee.toFixed(2)} %`)
+
+    console.log('-----------')
+    console.log('Most common contracts:')
+    const asArrayAllBlocks = Object.values(accessesArrayAllBlocks).sort((a, b) => {
+      return b.addressAccessCount > a.addressAccessCount ? 1 : -1
+    })
+    for (const element of asArrayAllBlocks) {
+      if (element.addressAccessCount < 100) {
+        break
+      }
+      let name = await fetchContractName(element.address)
+      console.log(`${element.address} | ${name} | ${element.addressAccessCount}`)
+    }
   })
 })
