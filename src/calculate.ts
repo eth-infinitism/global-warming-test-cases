@@ -1,5 +1,5 @@
-const COLD_ACCOUNT_ACCESS_COST = '2600'
-const COLD_SLOAD_COST = '2100'
+export const COLD_ACCOUNT_ACCESS_COST = '2600'
+export const COLD_SLOAD_COST = '2100'
 
 export interface AccessDetails {
   sender: string
@@ -20,6 +20,11 @@ export interface AddressAccessDetails {
 export interface Refund {
   refundFromBurn: bigint
   refundFromCoinbase: bigint
+  debugInfo: {
+    id: string
+    refundFromBurn: bigint
+    refundFromCoinbase: bigint
+  }[]
 }
 
 /**
@@ -33,9 +38,9 @@ export function calculateBlockColdAccessRefund (
 ): Map<string, Refund> {
   const refunds = new Map<string, Refund>()
   for (const accessDetail of accessDetailsMap) {
-    calculateItemColdAccessRefund(accessDetail.accessors, baseFeePerGas, COLD_ACCOUNT_ACCESS_COST, refunds)
+    calculateItemColdAccessRefund(accessDetail.address, accessDetail.accessors, baseFeePerGas, COLD_ACCOUNT_ACCESS_COST, refunds)
     for (const slot of accessDetail.slots) {
-      calculateItemColdAccessRefund(slot.accessors, baseFeePerGas, COLD_SLOAD_COST, refunds)
+      calculateItemColdAccessRefund(slot.id, slot.accessors, baseFeePerGas, COLD_SLOAD_COST, refunds)
     }
   }
   return refunds
@@ -44,12 +49,14 @@ export function calculateBlockColdAccessRefund (
 /**
  * Inner function to calculate a refund for a single accessed element.
  * Does not return - updates the {@link refunds} map.
+ * @param id - address or slot identifier
  * @param unsortedAccessors - the array with information of access event without sorting.
  * @param baseFeePerGas - the base fee per gas parameter of the block.
  * @param accessGasCost - the gas cost of the access operation.
  * @param refunds - the mapping to store the results.
  */
 function calculateItemColdAccessRefund (
+  id: string,
   unsortedAccessors: AccessDetails[],
   baseFeePerGas: string,
   accessGasCost: string,
@@ -57,13 +64,27 @@ function calculateItemColdAccessRefund (
 ): void {
   const sortedAccessDetails = unsortedAccessors.sort((a, b) => { return parseInt(b.priorityFeePerGas) - parseInt(a.priorityFeePerGas) })
   const addressAccessN = sortedAccessDetails.length
+  if (addressAccessN == 1) {
+    return
+  }
   const refundPercent = (addressAccessN - 1) / addressAccessN
   const refundsFromCoinbase = calculatePriorityFeeRefunds(sortedAccessDetails, accessGasCost)
   for (let i = 0; i < sortedAccessDetails.length; i++) {
     const accessor = sortedAccessDetails[i]
-    const refund = refunds.get(accessor.sender) ?? { refundFromBurn: 0n, refundFromCoinbase: 0n }
-    refund.refundFromBurn += BigInt(Math.floor(parseInt(accessGasCost) * parseInt(baseFeePerGas) * refundPercent))
-    refund.refundFromCoinbase += BigInt(refundsFromCoinbase[i])
+    const refund = refunds.get(accessor.sender) ?? {
+      refundFromBurn: 0n,
+      refundFromCoinbase: 0n,
+      debugInfo: []
+    }
+    const refundFromBurn = BigInt(Math.floor(parseInt(accessGasCost) * parseInt(baseFeePerGas) * refundPercent))
+    const refundFromCoinbase = BigInt(refundsFromCoinbase[i])
+    refund.refundFromBurn += refundFromBurn
+    refund.refundFromCoinbase += refundFromCoinbase
+    refund.debugInfo.push({
+      id,
+      refundFromBurn,
+      refundFromCoinbase
+    })
     refunds.set(accessor.sender, refund)
   }
 }
@@ -74,7 +95,10 @@ function calculateItemColdAccessRefund (
  * @param sortedAccesses - an array of {@link AccessDetails} already sorted by the {@link priorityFeePerGas}.
  * @param accessGasCost - the amount of gas units consumed by a single access operation
  */
-export function calculatePriorityFeeRefunds (sortedAccesses: AccessDetails[], accessGasCost: string) {
+export function calculatePriorityFeeRefunds (sortedAccesses: AccessDetails[], accessGasCost: string): number[] {
+  if (sortedAccesses.length === 1) {
+    return [0]
+  }
   // Validator charge is based on the highest paid priority fee per gas
   const validatorFee = parseInt(sortedAccesses[0].priorityFeePerGas) * parseInt(accessGasCost)
   // Notice that the two most expensive transactions have the same contribution to the refund
