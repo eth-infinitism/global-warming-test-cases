@@ -17,7 +17,7 @@ interface TempAccessDetails {
 }
 
 describe('using example blocks', function () {
-  const provider = new JsonRpcProvider('')
+  // const provider = new JsonRpcProvider('https://mainnet.infura.io/v3/b6381937a493473a877503df6b908a57')
 
   function mergeIn (accessesArrayAllBlocks: {
     [key: string]: TempAccessDetails
@@ -46,7 +46,7 @@ describe('using example blocks', function () {
     let totalPriorityFeePaidAllBlocks = 0n
     let totalBaseFeeRefundedAllBlocks = 0n
     let totalPriorityFeeRefundedAllBlocks = 0n
-    console.log(`Block Number  | Base Fee Burned       |  Priority Fee Paid | Unique cold addresses  | Repeated cold addresses | % repeats | Base Fee Refunded |  Priority Fee Refunded | % Base Fee | % Priority Fee`)
+    console.log(`Block Number  | Base Fee Burned       |  Priority Fee Paid | Unique cold addresses  | Repeated cold addresses | Txs in JSON |  Skipped txs (+data/-acl)  | % repeats | Base Fee Refunded |  Priority Fee Refunded | % Base Fee | % Priority Fee`)
     for (const blockFile of blockFiles) {
       const blockNumber = parseInt(blockFile.replace('.json', ''))
       const text = fs.readFileSync(`./blocks/${blockFile}`, 'utf-8')
@@ -57,8 +57,9 @@ describe('using example blocks', function () {
 
       // todo: fetch block details from node
       const blockDetails = {
-        baseFee: 25896203831n
+        baseFeePerGas: 25896203831n
       }
+      // const blockDetails = await provider.getBlock(blockNumber)
 
       for (const transaction of blockTransactionsWithACL) {
         if (transaction.maxPriorityFeePerGas == null) {
@@ -93,7 +94,7 @@ describe('using example blocks', function () {
         }
       }
       const details: AddressAccessDetails[] = Object.values(detailsInMap)
-      const gasFeeRefunds = calculateBlockColdAccessRefund(blockDetails.baseFee.toString(), details)
+      const gasFeeRefunds = calculateBlockColdAccessRefund(blockDetails!.baseFeePerGas!.toString(), details)
 
       const addressAccessesArray = Object.keys(detailsInMap).map(it => {
         const addressAccessCount = detailsInMap[it].accessors.length
@@ -115,7 +116,7 @@ describe('using example blocks', function () {
           addressAccessCount: addressAccessCount,
           slotAccessCount: slotAccessCount,
           accessGasCost: accessGasCost,
-          baseFeeBurned: blockDetails.baseFee * accessGasCost,
+          baseFeeBurned: blockDetails!.baseFeePerGas! * accessGasCost,
           priorityFeePaid: priorityFeePaid
         }
       }).sort((a, b) => {
@@ -159,7 +160,11 @@ describe('using example blocks', function () {
       const refundedPercentPriorityFee = totalPriorityFeeRefunded.toString() / totalPriorityFeePaid.toString() * 100
       // @ts-ignore
       const refundedPercentBaseFee = totalBaseFeeRefunded.toString() / totalBaseFeeBurned.toString() * 100
-      console.log(`${blockNumber}      | ${ethers.formatEther(totalBaseFeeBurned).substring(0, 7)}… ETH |  ${ethers.formatEther(totalPriorityFeePaid).substring(0, 7)}… ETH | ${totalUnique} | ${totalRepeated} |  ${repeatedAddressesPercent.toFixed(2)} % |${ethers.formatEther(totalBaseFeeRefunded)} |  ${ethers.formatEther(totalPriorityFeeRefunded)} |  ${refundedPercentBaseFee.toFixed(2)} % | ${refundedPercentPriorityFee.toFixed(2)} %`)
+
+      const skipped = blockTransactionsWithACL.filter((it: any) => {
+        return it.acl.length == 0 && it.data !== '0x'
+      })
+      console.log(`${blockNumber}      | ${ethers.formatEther(totalBaseFeeBurned).substring(0, 7)}… ETH |  ${ethers.formatEther(totalPriorityFeePaid).substring(0, 7)}… ETH | ${totalUnique} | ${totalRepeated} | ${blockTransactionsWithACL.length} |  ${skipped.length}  | ${repeatedAddressesPercent.toFixed(2)} % |${ethers.formatEther(totalBaseFeeRefunded)} |  ${ethers.formatEther(totalPriorityFeeRefunded)} |  ${refundedPercentBaseFee.toFixed(2)} % | ${refundedPercentPriorityFee.toFixed(2)} %`)
     }
 
     // @ts-ignore
