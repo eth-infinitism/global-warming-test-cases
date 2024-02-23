@@ -21,7 +21,8 @@ export interface Refund {
   refundFromBurn: bigint
   refundFromCoinbase: bigint
   debugInfo: {
-    id: string
+    address: string
+    slotId: string | null
     refundFromBurn: bigint
     refundFromCoinbase: bigint
   }[]
@@ -38,9 +39,9 @@ export function calculateBlockColdAccessRefund (
 ): Map<string, Refund> {
   const refunds = new Map<string, Refund>()
   for (const accessDetail of accessDetailsMap) {
-    calculateItemColdAccessRefund(accessDetail.address, accessDetail.accessors, baseFeePerGas, COLD_ACCOUNT_ACCESS_COST, refunds)
+    calculateItemColdAccessRefund(accessDetail.address, null, accessDetail.accessors, baseFeePerGas, COLD_ACCOUNT_ACCESS_COST, refunds)
     for (const slot of accessDetail.slots) {
-      calculateItemColdAccessRefund(slot.id, slot.accessors, baseFeePerGas, COLD_SLOAD_COST, refunds)
+      calculateItemColdAccessRefund(accessDetail.address, slot.id, slot.accessors, baseFeePerGas, COLD_SLOAD_COST, refunds)
     }
   }
   return refunds
@@ -49,14 +50,16 @@ export function calculateBlockColdAccessRefund (
 /**
  * Inner function to calculate a refund for a single accessed element.
  * Does not return - updates the {@link refunds} map.
- * @param id - address or slot identifier
+ * @param address - accessed contract
+ * @param slotId - accessed contract's slot identifier
  * @param unsortedAccessors - the array with information of access event without sorting.
  * @param baseFeePerGas - the base fee per gas parameter of the block.
  * @param accessGasCost - the gas cost of the access operation.
  * @param refunds - the mapping to store the results.
  */
 function calculateItemColdAccessRefund (
-  id: string,
+  address: string,
+  slotId: string | null,
   unsortedAccessors: AccessDetails[],
   baseFeePerGas: string,
   accessGasCost: string,
@@ -81,7 +84,8 @@ function calculateItemColdAccessRefund (
     refund.refundFromBurn += refundFromBurn
     refund.refundFromCoinbase += refundFromCoinbase
     refund.debugInfo.push({
-      id,
+      address,
+      slotId,
       refundFromBurn,
       refundFromCoinbase
     })
