@@ -1,5 +1,5 @@
 import fs from 'fs'
-import { ethers, JsonRpcProvider } from 'ethers'
+import { ethers } from 'ethers'
 import {
   AddressAccessDetails,
   calculateBlockColdAccessRefund, COLD_ACCOUNT_ACCESS_COST, COLD_SLOAD_COST,
@@ -9,11 +9,13 @@ import { fetchContractName } from './etherscan_utils'
 
 interface TempAccessDetails {
   address: string
-  baseFeeBurned: bigint
   addressAccessCount: number
   slotAccessCount: number
-  priorityFeePaid: bigint
   accessGasCost: bigint
+  totalBaseFeeBurned: bigint
+  totalPriorityFeePaid: bigint
+  totalBaseFeeRefunded: bigint
+  totalPriorityFeeRefunded: bigint
 }
 
 describe('using example blocks', function () {
@@ -29,9 +31,11 @@ describe('using example blocks', function () {
       } else {
         oldElement.addressAccessCount += newElement.addressAccessCount
         oldElement.slotAccessCount += newElement.slotAccessCount
-        oldElement.priorityFeePaid += newElement.priorityFeePaid
-        oldElement.baseFeeBurned += newElement.baseFeeBurned
+        oldElement.totalPriorityFeePaid += newElement.totalPriorityFeePaid
+        oldElement.totalBaseFeeBurned += newElement.totalBaseFeeBurned
         oldElement.accessGasCost += newElement.accessGasCost
+        oldElement.totalBaseFeeRefunded += newElement.totalBaseFeeRefunded
+        oldElement.totalPriorityFeeRefunded += newElement.totalPriorityFeeRefunded
       }
     }
   }
@@ -39,6 +43,7 @@ describe('using example blocks', function () {
   it.only('calculate savings', async function () {
     this.timeout(10000000)
     const blockFiles = fs.readdirSync('./blocks/')
+    const baseFeesFile = JSON.parse(fs.readFileSync('./baseFees.json', 'utf-8'))
 
     let accessesArrayAllBlocks: { [key: string]: TempAccessDetails } = {}
 
@@ -55,10 +60,7 @@ describe('using example blocks', function () {
       const allAccesses = []
       const detailsInMap: { [key: string]: AddressAccessDetails } = {}
 
-      // todo: fetch block details from node
-      const blockDetails = {
-        baseFeePerGas: 25896203831n
-      }
+      const blockBaseFeePerGas = baseFeesFile[blockNumber]
       // const blockDetails = await provider.getBlock(blockNumber)
 
       for (const transaction of blockTransactionsWithACL) {
@@ -94,7 +96,7 @@ describe('using example blocks', function () {
         }
       }
       const details: AddressAccessDetails[] = Object.values(detailsInMap)
-      const gasFeeRefunds = calculateBlockColdAccessRefund(blockDetails!.baseFeePerGas!.toString(), details)
+      const gasFeeRefunds = calculateBlockColdAccessRefund(blockBaseFeePerGas.toString(), details)
 
       const addressAccessesArray = Object.keys(detailsInMap).map(it => {
         const addressAccessCount = detailsInMap[it].accessors.length
@@ -111,13 +113,33 @@ describe('using example blocks', function () {
         const accessGasCost =
           BigInt(addressAccessCount) * BigInt(COLD_ACCOUNT_ACCESS_COST) +
           BigInt(slotAccessCount) * BigInt(COLD_SLOAD_COST)
+
+        const baseFeeRefunded = Array.from(gasFeeRefunds.values()).reduce(((previousValue, currentValue) => {
+          const refundedBaseDueToThisContract = currentValue.debugInfo
+            .filter(el => el.address.toLowerCase() === it)
+            .reduce((previousValue, currentValue) => {
+              return previousValue + currentValue.refundFromBurn
+            }, 0n)
+          return previousValue + refundedBaseDueToThisContract
+        }), 0n)
+        const priorityFeeRefunded = Array.from(gasFeeRefunds.values()).reduce(((previousValue, currentValue) => {
+          const refundedBaseDueToThisContract = currentValue.debugInfo
+            .filter(el => el.address.toLowerCase() === it)
+            .reduce((previousValue, currentValue) => {
+              return previousValue + currentValue.refundFromCoinbase
+            }, 0n)
+          return previousValue + refundedBaseDueToThisContract
+        }), 0n)
+        const totalBaseFeeBurned = BigInt(blockBaseFeePerGas) * accessGasCost
         return {
           address: it,
           addressAccessCount: addressAccessCount,
           slotAccessCount: slotAccessCount,
           accessGasCost: accessGasCost,
-          baseFeeBurned: blockDetails!.baseFeePerGas! * accessGasCost,
-          priorityFeePaid: priorityFeePaid
+          totalBaseFeeBurned: totalBaseFeeBurned,
+          totalPriorityFeePaid: priorityFeePaid,
+          totalBaseFeeRefunded: baseFeeRefunded,
+          totalPriorityFeeRefunded: priorityFeeRefunded
         }
       }).sort((a, b) => {
         return b.addressAccessCount > a.addressAccessCount ? 1 : -1
@@ -136,8 +158,8 @@ describe('using example blocks', function () {
         totalRepetitions += elements.addressAccessCount - 1
         totalRepeated += elements.addressAccessCount > 1 ? 1 : 0
         totalUnique += elements.addressAccessCount > 1 ? 0 : 1
-        totalBaseFeeBurned += elements.baseFeeBurned
-        totalPriorityFeePaid += elements.priorityFeePaid
+        totalBaseFeeBurned += elements.totalBaseFeeBurned
+        totalPriorityFeePaid += elements.totalBaseFeeRefunded
       }
 
       let totalBaseFeeRefunded = 0n
@@ -181,12 +203,19 @@ describe('using example blocks', function () {
     const asArrayAllBlocks = Object.values(accessesArrayAllBlocks).sort((a, b) => {
       return b.addressAccessCount > a.addressAccessCount ? 1 : -1
     })
+    console.log(`Address | Name | Accessed times | Base fee refunds | Priority fee refunds | Base Fee Savings % | Priority Fee Savings %`)
     for (const element of asArrayAllBlocks) {
       if (element.addressAccessCount < 100) {
         break
       }
+
+      // @ts-ignore
+      const refundedPercentPriorityFee = element.totalPriorityFeeRefunded.toString() / element.totalPriorityFeePaid.toString() * 100
+      // @ts-ignore
+      const refundedPercentBaseFee = element.totalBaseFeeRefunded.toString() / element.totalBaseFeeBurned.toString() * 100
+
       let name = await fetchContractName(element.address)
-      console.log(`${element.address} | ${name} | ${element.addressAccessCount}`)
+      console.log(`${element.address} | ${name} | ${element.addressAccessCount} | ${element.totalBaseFeeRefunded.toString().substring(0, 7)}… ETH | ${element.totalPriorityFeeRefunded.toString().substring(0, 7)}… ETH | ${refundedPercentBaseFee.toFixed(2)} % | ${refundedPercentPriorityFee.toFixed(2)} %`)
     }
   })
 })
